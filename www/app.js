@@ -271,7 +271,7 @@ function toggleMenu(open = !S.menuOpen) {
   S.menuOpen = open;
   if (open) {
     const m = L.menu;
-    E.menu = gl.expandFrom(E.plus, m.x, m.y, m.w, m.h, "rounded", 28, "regular", 0.5, 0.22);
+    E.menu = gl.expandFrom(E.plus, m.x, m.y, m.w, m.h, "rounded", Math.min(L.plus.w, L.plus.h) / 2, "regular", 0.5, 0.22);
     menuOpenedAt = simTime;
   } else if (E.menu !== undefined) {
     gl.collapseInto(E.menu, E.plus, 0.38, 0);
@@ -280,6 +280,20 @@ function toggleMenu(open = !S.menuOpen) {
   }
 }
 let menuOpenedAt = -10, closingMenu;
+
+// expand_from / collapse_into animate the frame but not the outline: a menu with
+// 28 pt corners starts and ends as a rounded square on top of the round + button,
+// then snaps to a circle when it is dropped. Easing the corner radius with the size
+// keeps it an exact circle at the button's size (radius = half its side).
+const MENU_RADIUS = 28;
+function morphMenuShape() {
+  const id = E.menu ?? closingMenu;
+  const f = id !== undefined && frameOf(id);
+  if (!f) return;
+  const round = Math.min(L.plus.w, L.plus.h) / 2;
+  const t = clamp((Math.min(f.w, f.h) - 2 * round) / (Math.min(L.menu.w, L.menu.h) - 2 * round));
+  gl.setShape(id, "rounded", lerp(round, MENU_RADIUS, ease(t)), 0.6);
+}
 
 const MENU_ROWS = [
   { key: "clear", label: "Clear glass" },
@@ -880,7 +894,7 @@ function drawBack() {
   // Refraction slider.
   const rt = L.refTrack, rk = frameOf(E.refKnob);
   pill(ctx, rt, color("track"));
-  const rEnd = rk ? rk.x + rk.w / 2 : refCenter();
+  const rEnd = fillEnd(rk, L.refKnob, S.refraction);
   pill(ctx, { ...rt, w: rEnd - rt.x }, color("blue"));
 
   // Tint slider: a spectrum filled up to the knob.
@@ -888,13 +902,21 @@ function drawBack() {
   pill(ctx, hb, color("track"));
   const grad = ctx.createLinearGradient(L.hueKnob.min, 0, L.hueKnob.max, 0);
   HUES.forEach((h, i) => grad.addColorStop(i / (HUES.length - 1), h));
-  const hEnd = hk ? hk.x + hk.w / 2 : hueCenter();
+  const hEnd = fillEnd(hk, L.hueKnob, S.hue);
   pill(ctx, { ...hb, w: hEnd - hb.x }, grad);
 
   // Captions: what each control is, and the call behind it.
   caption(ctx, L.trackCaption, "Liquid merge", `set_container_spacing(${S.merge ? L.pairSpacing : 0})`);
   caption(ctx, L.refCaption, `Refraction ${S.refraction.toFixed(2)}`, "Material { refraction, depth }");
   caption(ctx, L.hueCaption, "Tint", "Material::tinted(color)");
+}
+
+// Where a slider's fill ends inside its glass knob: at the knob's left edge at 0 %,
+// its right edge at 100 %, so the share of fill seen through the glass is the value.
+function fillEnd(knob, k, value) {
+  if (!knob) return lerp(k.min, k.max, value) + (value - 0.5) * k.w;
+  const v = clamp((knob.x + knob.w / 2 - k.min) / (k.max - k.min));
+  return knob.x + v * knob.w;
 }
 
 function pill(ctx, r, fill) {
@@ -1205,6 +1227,7 @@ function advance(dt) {
   const light = S.lightSweep + tilt;
   if (Math.abs(light - lastLight) > 0.2) { gl.setLightAngle(light); lastLight = light; }
 
+  morphMenuShape();
   drawBack();
   gl.setContent(back);
   animating = gl.frame(dt);
