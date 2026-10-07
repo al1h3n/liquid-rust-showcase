@@ -210,9 +210,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "liquid-rust"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "003821eb334f184041964089995d53c3ea22c38564513c0e6d32b961c1e2633b"
+checksum = "89e30946096034bab827ccc72baa6a1fa2880e09655f7f46281145a29bb7d029"
 dependencies = [
  "bytemuck",
  "glam",

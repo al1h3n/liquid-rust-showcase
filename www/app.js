@@ -271,7 +271,7 @@ function toggleMenu(open = !S.menuOpen) {
   S.menuOpen = open;
   if (open) {
     const m = L.menu;
-    E.menu = gl.expandFrom(E.plus, m.x, m.y, m.w, m.h, "rounded", Math.min(L.plus.w, L.plus.h) / 2, "regular", 0.5, 0.22);
+    E.menu = gl.expandFrom(E.plus, m.x, m.y, m.w, m.h, "rounded", MENU_RADIUS, "regular", 0.5, 0.22);
     menuOpenedAt = simTime;
   } else if (E.menu !== undefined) {
     gl.collapseInto(E.menu, E.plus, 0.38, 0);
@@ -281,19 +281,7 @@ function toggleMenu(open = !S.menuOpen) {
 }
 let menuOpenedAt = -10, closingMenu;
 
-// expand_from / collapse_into animate the frame but not the outline: a menu with
-// 28 pt corners starts and ends as a rounded square on top of the round + button,
-// then snaps to a circle when it is dropped. Easing the corner radius with the size
-// keeps it an exact circle at the button's size (radius = half its side).
 const MENU_RADIUS = 28;
-function morphMenuShape() {
-  const id = E.menu ?? closingMenu;
-  const f = id !== undefined && frameOf(id);
-  if (!f) return;
-  const round = Math.min(L.plus.w, L.plus.h) / 2;
-  const t = clamp((Math.min(f.w, f.h) - 2 * round) / (Math.min(L.menu.w, L.menu.h) - 2 * round));
-  gl.setShape(id, "rounded", lerp(round, MENU_RADIUS, ease(t)), 0.6);
-}
 
 const MENU_ROWS = [
   { key: "clear", label: "Clear glass" },
@@ -505,7 +493,10 @@ function menuRowAt(mf, p) {
 const mouse = { name: "you" };
 const toWorld = (e) => ({ x: e.clientX / fit, y: e.clientY / fit });
 ink.addEventListener("pointerdown", (e) => {
-  if (RECORD || !gl) return;
+  // One finger at a time: liquid-rust tracks a single pointer, so a second touch
+  // must not hijack the first one's drag.
+  if (RECORD || !gl || mouse.down) return;
+  mouse.id = e.pointerId;
   ink.setPointerCapture(e.pointerId);
   if (S.autoplay) {
     const p = toWorld(e);
@@ -517,7 +508,7 @@ ink.addEventListener("pointerdown", (e) => {
   wake();
 });
 ink.addEventListener("pointermove", (e) => {
-  if (RECORD || !gl) return;
+  if (RECORD || !gl || (mouse.down && e.pointerId !== mouse.id)) return;
   const p = toWorld(e);
   mouse.pos = p;
   if (mouse.down) pointerMove(mouse, p);
@@ -526,7 +517,7 @@ ink.addEventListener("pointermove", (e) => {
   wake();
 });
 const release = (e) => {
-  if (RECORD || !gl || !mouse.down) return;
+  if (RECORD || !gl || !mouse.down || e.pointerId !== mouse.id) return;
   mouse.down = false;
   pointerUp(mouse, toWorld(e));
   ink.classList.remove("grab");
@@ -1022,9 +1013,16 @@ function drawInk() {
         ctx.beginPath(); ctx.moveTo(c.x - 4.5 * u, c.y - 8 * u); ctx.lineTo(c.x + 8 * u, c.y); ctx.lineTo(c.x - 4.5 * u, c.y + 8 * u); ctx.closePath(); ctx.fill();
       }
     } else {
-      ctx.beginPath(); ctx.arc(c.x, c.y, 8 * u, -Math.PI * 0.35, Math.PI * 1.45); ctx.stroke();
-      const a = -Math.PI * 0.35, tip = { x: c.x + Math.cos(a) * 8 * u, y: c.y + Math.sin(a) * 8 * u };
-      stroke(ctx, [[tip.x - 5 * u, tip.y - 1 * u], [tip.x + 0.5 * u, tip.y], [tip.x + 0.5 * u, tip.y - 5.5 * u]]);
+      // arrow.counterclockwise: an open ring from 12 o'clock round to 10, with a filled
+      // head at 12 pointing left into the gap.
+      const r = 7.5 * u, top = c.y - r;
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, -Math.PI / 2, Math.PI * 1.18); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(c.x - 4.2 * u, top);
+      ctx.lineTo(c.x + 1.4 * u, top - 3.9 * u);
+      ctx.lineTo(c.x + 1.4 * u, top + 3.9 * u);
+      ctx.closePath();
+      ctx.fill();
     }
   });
 
@@ -1063,7 +1061,7 @@ function drawMenu(ctx, label) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.beginPath();
-  ctx.roundRect(mf.x, mf.y, mf.w, mf.h, 28);
+  ctx.roundRect(mf.x, mf.y, mf.w, mf.h, MENU_RADIUS);
   ctx.clip();
   const pad = 10, rowH = (m.h - pad * 2) / MENU_ROWS.length;
   const pressedRow = [mouse, ...cursors].find((p) => p.ui?.kind === "menu")?.ui.row;
@@ -1227,7 +1225,6 @@ function advance(dt) {
   const light = S.lightSweep + tilt;
   if (Math.abs(light - lastLight) > 0.2) { gl.setLightAngle(light); lastLight = light; }
 
-  morphMenuShape();
   drawBack();
   gl.setContent(back);
   animating = gl.frame(dt);
