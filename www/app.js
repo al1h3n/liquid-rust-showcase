@@ -151,7 +151,7 @@ function landscapeLayout(W, H) {
     pairSpacing: 40,
     toolbar: [0, 1, 2].map((i) => r(right(1210) + i * 58, 36, 52, 52)),
     cta: r(right(1400), 36, 176, 52),
-    toast: r(cx(800) - 172, 36, 344, 52),
+    toast: r(cx(800) - 186, 36, 372, 52),
     plus,
     menu: r(plus.x - 20 - 236, cy(540), 236, 214),
     panel: r(right(1120), bottom(560), W - right(1120) + 80, 420),
@@ -303,8 +303,10 @@ function chooseMenu(key) {
   after(0.28, () => toggleMenu(false));
 }
 
-let toastAt = -10, toastGoneAt = -10;
-function showToast() {
+let toastAt = -10, toastGoneAt = -10, toastText = "", toastOk = true;
+function showToast(text, ok = true) {
+  toastText = text;
+  toastOk = ok;
   if (E.toast !== undefined) return;
   E.toast = add(L.toast, "capsule", 0, "regular", { z: 3 });
   toastAt = simTime;
@@ -315,15 +317,20 @@ function showToast() {
   });
 }
 
-function activate(id) {
+const INSTALL = "cargo add liquid-rust";
+let copyPending = false;
+
+function activate(id, ptr) {
   if (id === E.knob) setMerge(!S.merge);
   else if (id === E.plus) toggleMenu();
   else if (id === E.tools[0]) S.lightSweep += 120;
   else if (id === E.tools[1]) (S.autoplay ? stopAutoplay() : startAutoplay());
   else if (id === E.tools[2]) resetAll();
   else if (id === E.cta) {
-    if (!RECORD) navigator.clipboard?.writeText("cargo add liquid-rust --git https://github.com/al1h3n/liquid-rust").catch(() => {});
-    showToast();
+    // A real click copies (in the click handler below, where browsers allow it);
+    // a scripted cursor only shows what would happen.
+    if (ptr === mouse) copyPending = true;
+    else showToast(`Copied “${INSTALL}”`);
   }
 }
 
@@ -417,7 +424,11 @@ function pointerDown(ptr, p) {
     if (row >= 0) ptr.ui = { kind: "menu", row };
     return;
   }
-  if (sceneOwner && sceneOwner !== ptr) return;
+  // liquid-rust tracks one pointer. The real mouse always gets it; cursors wait their turn.
+  if (sceneOwner && sceneOwner !== ptr) {
+    if (ptr !== mouse) return;
+    abandon(sceneOwner);
+  }
   const id = gl.pointerDown(p.x, p.y);
   if (id < 0) {
     if (S.menuOpen && !inside(p, L.plus)) toggleMenu(false);
@@ -460,7 +471,15 @@ function pointerUp(ptr, p) {
   const id = ptr.glass;
   ptr.glass = -1;
   const moved = Math.hypot(p.x - ptr.p0.x, p.y - ptr.p0.y);
-  if (moved < 12 && gl.hitTest(p.x, p.y) === id) activate(id);
+  if (moved < 12 && gl.hitTest(p.x, p.y) === id) activate(id, ptr);
+}
+
+// Lets go of the glass without activating it (the real mouse took over).
+function abandon(ptr) {
+  if (sceneOwner !== ptr) return;
+  gl.pointerUp();
+  sceneOwner = null;
+  ptr.glass = -1;
 }
 
 function menuRowAt(mf, p) {
@@ -501,6 +520,30 @@ const release = (e) => {
 };
 ink.addEventListener("pointerup", release);
 ink.addEventListener("pointercancel", release);
+ink.addEventListener("click", () => {
+  if (!copyPending) return;
+  copyPending = false;
+  copyInstall();
+});
+
+// Clipboard API first; the textarea + execCommand path covers browsers or embeds
+// that refuse it. Both run inside the click, which every browser counts as a gesture.
+async function copyInstall() {
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(INSTALL);
+    ok = true;
+  } catch {
+    const area = Object.assign(document.createElement("textarea"), { value: INSTALL, readOnly: true });
+    area.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+    document.body.append(area);
+    area.select();
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    area.remove();
+  }
+  showToast(ok ? `Copied “${INSTALL}”` : `Copy blocked: ${INSTALL}`, ok);
+  wake();
+}
 
 function hoverable(p) {
   if (gl.hitTest(p.x, p.y) >= 0) return true;
@@ -1091,12 +1134,13 @@ function drawToast(ctx, label) {
   ctx.font = `500 ${L.portrait ? 14 : 15}px ${FONT}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  const text = "Copied “cargo add liquid-rust”";
+  const text = toastText;
   const w = ctx.measureText(text).width + 26;
   const x = c.x - w / 2;
-  ctx.strokeStyle = color("green");
+  ctx.strokeStyle = toastOk ? color("green") : "#FF9F0A";
   ctx.lineWidth = 2.2;
-  stroke(ctx, [[x, c.y], [x + 5, c.y + 5], [x + 14, c.y - 6]]);
+  if (toastOk) stroke(ctx, [[x, c.y], [x + 5, c.y + 5], [x + 14, c.y - 6]]);
+  else { stroke(ctx, [[x + 7, c.y - 7], [x + 7, c.y + 2]]); stroke(ctx, [[x + 7, c.y + 7], [x + 7, c.y + 7.5]]); }
   ctx.fillStyle = label;
   ctx.fillText(text, x + 26, c.y + 1);
   ctx.restore();

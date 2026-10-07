@@ -4,9 +4,11 @@ Rebuild the live demo (GitHub Pages serves www/ from the main branch)
 `cargo update` alone is not enough: it only moves Cargo.lock. The page runs the
 compiled wasm in www/pkg, so that has to be rebuilt and committed.
 
-1. Pull the latest liquid-rust from GitHub (skip to rebuild the same version):
+1. Pull the latest liquid-rust 0.1.x from crates.io (skip to rebuild the same version):
 
    cargo update -p liquid-rust
+
+   For a new minor version (0.2, …) change `liquid-rust = "0.1"` in Cargo.toml first.
 
 2. Build the optimized wasm (release, LTO, wasm-opt; no TypeScript or npm files):
 

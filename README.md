@@ -95,7 +95,7 @@ node tools/record.mjs --seconds 6 --width 1280 --height 720 --out media/clip.mp4
 ## Layout
 
 ```
-Cargo.toml         liquid-rust from git, wasm-only deps under cfg(wasm32)
+Cargo.toml         liquid-rust from crates.io, wasm-only deps under cfg(wasm32)
 src/lib.rs         the wasm binding (Showcase)
 src/bin/serve.rs   `cargo run` static server
 www/               index.html, style.css, app.js, pkg/ (committed wasm build)
