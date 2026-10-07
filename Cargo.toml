@@ -1,0 +1,30 @@
+[package]
+name = "liquid-rust-showcase"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+description = "A sample site for liquid-rust: every Liquid Glass control, live in the browser through WebGPU."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/al1h3n/liquid-rust-showcase"
+homepage = "https://al1h3n.github.io/liquid-rust-showcase/"
+default-run = "serve"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# The page itself is wasm (src/lib.rs); `cargo run` is a std-only static server (src/bin/serve.rs).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+liquid-rust = { git = "https://github.com/al1h3n/liquid-rust" }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+wgpu = { version = "30", default-features = false, features = ["webgpu", "wgsl", "std"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

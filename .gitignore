@@ -1,0 +1,8 @@
+/target
+/.claude
+
+# The live demo is served straight from this branch, so its wasm build is committed.
+# Only the two files the page loads; anything else wasm-pack writes stays out.
+/www/pkg/*
+!/www/pkg/liquid_rust_showcase.js
+!/www/pkg/liquid_rust_showcase_bg.wasm

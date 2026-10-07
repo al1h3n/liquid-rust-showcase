@@ -1,0 +1,30 @@
+Rebuild the live demo (GitHub Pages serves www/ from the main branch)
+=====================================================================
+
+`cargo update` alone is not enough: it only moves Cargo.lock. The page runs the
+compiled wasm in www/pkg, so that has to be rebuilt and committed.
+
+1. Pull the latest liquid-rust from GitHub (skip to rebuild the same version):
+
+   cargo update -p liquid-rust
+
+2. Build the optimized wasm (release, LTO, wasm-opt; no TypeScript or npm files):
+
+   wasm-pack build --target web --release --out-dir www/pkg --no-typescript --no-pack
+
+3. Delete the ignore-everything file wasm-pack drops in www/pkg, or git won't see the build:
+
+   rm www/pkg/.gitignore                (PowerShell: Remove-Item www/pkg/.gitignore)
+
+4. Try it locally, then publish:
+
+   cargo run                            (opens on http://127.0.0.1:8080, or the next free port)
+   git add -A
+   git commit -m "Rebuild live demo"
+   git push
+
+Optional: re-record the video and preview after visual changes:
+
+   node tools/record.mjs
+   ffmpeg -y -ss 4 -i media/showcase.mp4 -frames:v 1 media/poster.png
+   ffmpeg -y -i media/showcase.mp4 -vf "fps=24,scale=960:-1:flags=lanczos" -c:v libwebp -quality 70 -compression_level 6 -loop 0 -an media/showcase.webp

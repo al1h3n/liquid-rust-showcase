@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LiquidRust</title>
+<meta name="description" content="Apple’s Liquid Glass for wgpu, running live in your browser through WebGPU. Every control on this page is liquid-rust.">
+<meta name="theme-color" content="#D8DADF">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="stage" aria-describedby="about">
+  <canvas id="glass" aria-hidden="true"></canvas>
+  <canvas id="ink" role="img" aria-label="LiquidRust showcase: a toggle, two sliders, a menu button, a draggable lens and an appearance panel, all made of Liquid Glass."></canvas>
+</main>
+<p id="about" class="sr">
+  Interactive demo of liquid-rust. Three scripted cursors use the controls until you touch the page.
+  Drag the round lens over the title, flip the Liquid merge switch, drag either slider, open the plus menu,
+  and use the Appearance panel for dark mode, contrast, reduced motion and the iOS 27 transparency slider.
+  Keys: Space pauses the cursors, D dark, C contrast, M reduce motion, T reduce transparency, P physics.
+</p>
+<div id="fallback" hidden>
+  <img src="../media/poster.png" alt="LiquidRust showcase: Liquid Glass controls over a light background with the title LiquidRust in the centre.">
+  <p><strong>WebGPU isn’t available in this browser.</strong> Open the page in Chrome, Edge or Safari 26 to touch the glass, or watch <a href="../media/showcase.mp4">the recording</a>.</p>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

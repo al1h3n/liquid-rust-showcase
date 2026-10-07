@@ -1,0 +1,4 @@
+*.wasm binary
+*.png binary
+*.webp binary
+*.mp4 binary
