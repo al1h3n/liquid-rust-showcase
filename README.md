@@ -1,3 +1,5 @@
+https://github.com/user-attachments/assets/80811c7a-5de5-4d94-99e6-00bc5331f0ab
+
 # LiquidRust showcase
 
 A sample app for [liquid-rust](https://github.com/al1h3n/liquid-rust): Apple’s Liquid Glass,
@@ -9,13 +11,6 @@ transparency, physics and dark mode while the other two are mid-gesture, so you 
 setting act on glass that is moving.
 
 **[Try it live →](https://al1h3n.github.io/liquid-rust-showcase/)** (needs a browser with WebGPU)
-
-<!-- Video: on github.com, edit this file, drag media/showcase.mp4 in, and keep the
-     https://github.com/user-attachments/assets/… link it inserts here, on its own line. -->
-
-[![LiquidRust showcase: Liquid Glass toggles, sliders, a menu and a lens moving over the title](media/showcase.webp)](https://al1h3n.github.io/liquid-rust-showcase/)
-
-▶ [Full recording, 1080p60 (`media/showcase.mp4`)](media/showcase.mp4)
 
 ## Run it
 
