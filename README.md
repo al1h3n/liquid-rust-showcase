@@ -44,22 +44,25 @@ serving this repo's `main` branch from the root; [`index.html`](index.html) forw
 | Toolbar ☀ | Sweeps the specular light around every rim (the cursors also tilt it slightly) | `Scene::set_light_angle` |
 | Toolbar ⏸ / ↺ | Pause the cursors (or press Space), reset everything | |
 | **Appearance** panel | The iOS 27 transparency slider, dark scheme, More Contrast, Reduce Transparency, Reduce Motion, physics on/off | `Appearance { transparency, dark, increase_contrast, reduce_transparency, reduce_motion }`, `Scene::physics` |
+| **Limit FPS** chip | Draws every n-th display frame, near 60 fps (72 on a 144 Hz screen), for a steady rate on fast displays. The motion is the same: springs are solved in closed form for any step | `Scene::update(dt)` |
 | Pressing any button | It grows and lights up from the finger, then springs back | `Glass::interactive()` |
-| The lens over the **+** button | Glass on glass: the upper layer refracts the glass rendered below it | `Glass::z`, container `z` |
+| The lens over the **+** button or its menu | Glass on glass: the lens refracts the glass below it and the labels on that glass | `Glass::z`, container `z`, `Renderer::render_layers` |
 | The big panels | Apple’s continuous squircle corners; capsules everywhere else | `Shape::Rounded(r)`, `Shape::Capsule` (`Circular`, `Smooth` also exposed) |
 
 The page starts from your system settings: `prefers-color-scheme`, `prefers-contrast`,
 `prefers-reduced-motion` and `prefers-reduced-transparency` seed the Appearance panel.
 Add `?nomedia` to ignore them, `?theme=dark` to start dark, or `?still` to start without cursors.
-Keys: Space pauses the cursors, `D` dark, `C` contrast, `M` reduce motion, `T` reduce transparency, `P` physics.
+Keys: Space pauses the cursors, `D` dark, `C` contrast, `M` reduce motion, `T` reduce transparency, `P` physics, `F` limit FPS.
 
 ## How it’s built
 
 ```
-back   2D canvas, offscreen   background, title, captions, slider and switch fills
-  │    uploaded with Showcase::setContent → copy_external_image_to_texture
-glass  WebGPU canvas          liquid-rust: content + every glass shape (one Scene, one Renderer)
-ink    2D canvas on top       glyphs and labels sitting on the glass, the scripted cursors
+back    2D canvas, offscreen   background, title, captions, slider and switch fills
+  │     uploaded with Showcase::setContent → copy_external_image_to_texture
+labels  2D canvas, offscreen   glyphs and labels sitting on the glass
+  │     uploaded with Showcase::setLabels, drawn between the two passes of glass
+glass   WebGPU canvas          liquid-rust: content, lower glass, labels, then the lens (one Scene, two Renderers)
+ink     2D canvas on top       the toast's text and the scripted cursors
 ```
 
 - [`src/lib.rs`](src/lib.rs) is the Rust side: a `wasm-bindgen` wrapper that owns the wgpu
@@ -69,10 +72,16 @@ ink    2D canvas on top       glyphs and labels sitting on the glass, the script
   refracts things that move.
 - [`www/app.js`](www/app.js) lays out the scene, draws the content and labels, routes input
   and runs the cursors on a simulated clock.
-- The content is redrawn and uploaded only while something moves; the loop stops when
-  `Scene::update` reports rest and no cursor is playing.
-- Labels sit on top of the glass, as liquid-rust’s contract asks, never inside it.
-  The panel’s controls are fills on glass, not glass on glass.
+- A layer is repainted and uploaded only when what it draws changed (a slider fill, the
+  theme, a pressed row). Each one is first drawn through a context that paints nothing and
+  records the calls; an identical recording means nothing to do. While only glass moves,
+  such as the lens, the page uploads nothing and liquid-rust reuses the blur it already
+  made (`content_changed: false`). The loop stops when `Scene::update` reports rest and no
+  cursor is playing.
+- Labels sit on top of the glass, as liquid-rust’s contract asks, never inside it. They are
+  drawn after the glass below the lens and before the lens (`Renderer::render_layers`), so
+  the lens bends the menu’s text, not only its outline. The panel’s controls are fills on
+  glass, not glass on glass.
 
 ## Record the video
 

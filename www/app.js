@@ -1,10 +1,12 @@
 // LiquidRust showcase.
 //
-// Three layers, bottom to top:
-//   back  (2D canvas, offscreen): background, title, captions and the slider/toggle fills.
-//         Uploaded to liquid-rust as the content the glass refracts.
-//   glass (WebGPU canvas): liquid-rust draws content + every glass shape.
-//   ink   (2D canvas): glyphs and labels sitting on the glass, plus the scripted cursors.
+// Four layers, bottom to top:
+//   back   (2D canvas, offscreen): background, title, captions and the slider/toggle fills.
+//          Uploaded to liquid-rust as the content the glass refracts.
+//   labels (2D canvas, offscreen): glyphs and labels sitting on the glass. Uploaded too and
+//          drawn between the lower glass and the lens, so the lens refracts them as well.
+//   glass  (WebGPU canvas): liquid-rust draws content, glass, labels, then the upper glass.
+//   ink    (2D canvas): what is above all glass: the toast's text and the scripted cursors.
 //
 // Scene units are "world" units: the 1600×900 design scaled to fit the window
 // (landscape) or a 440×956 design (portrait). Pixels per unit = devicePixelRatio × fit.
@@ -79,6 +81,7 @@ const S = {
   reduceTransparency: false,
   reduceMotion: media("(prefers-reduced-motion: reduce)"),
   physics: true,
+  limitFps: false,
   merge: true,
   refraction: 0.7,
   hue: 0.84,
@@ -96,7 +99,7 @@ let simTime = 0;
 const E = {};     // glass handles
 const C = {};     // container handles
 const back = document.createElement("canvas");
-const bctx = back.getContext("2d");
+const labels = document.createElement("canvas");
 const glassCanvas = document.getElementById("glass");
 const ink = document.getElementById("ink");
 const ictx = ink.getContext("2d");
@@ -112,10 +115,11 @@ function measureViewport() {
   fit = Math.min(cw / dw, ch / dh);
   W = cw / fit;
   H = ch / fit;
-  for (const c of [back, glassCanvas, ink]) {
+  for (const c of [back, labels, glassCanvas, ink]) {
     c.width = Math.round(cw * dpr);
     c.height = Math.round(ch * dpr);
   }
+  for (const l of Object.values(LAYERS)) l.tape = null; // sizing a canvas clears it
   L = portrait ? portraitLayout(W, H) : landscapeLayout(W, H);
 }
 
@@ -215,6 +219,9 @@ const frameOf = (id) => {
   return f ? { x: f[0], y: f[1], w: f[2], h: f[3] } : null;
 };
 
+// The lens and everything above it refract the labels of the glass below.
+const LENS_Z = 2;
+
 function buildScene() {
   C.pair = gl.addContainer(L.pairSpacing, 0);
   C.tool = gl.addContainer(14, 0);
@@ -230,7 +237,7 @@ function buildScene() {
   E.tools = L.toolbar.map((r) => add(r, "capsule", 0, "regular", { interactive: true, container: C.tool }));
   E.cta = add(L.cta, "capsule", 0, "tinted", { tint: parseInt(hueAt(S.hue).slice(1), 16), interactive: true });
   E.plus = add(L.plus, "capsule", 0, "regular", { interactive: true, container: C.plus });
-  E.lens = add(L.lensHome, "capsule", 0, "clear", { lens: true, z: 2 });
+  E.lens = add(L.lensHome, "capsule", 0, "clear", { lens: true, z: LENS_Z });
   E.menu = undefined;
   E.toast = undefined;
   applyLensMaterial();
@@ -294,7 +301,7 @@ function chooseMenu(key) {
   if (key === "hide") {
     if (S.lensShown) gl.remove(E.lens);
     else {
-      E.lens = add(L.lensHome, "capsule", 0, S.lensMaterial, { lens: true, z: 2 });
+      E.lens = add(L.lensHome, "capsule", 0, S.lensMaterial, { lens: true, z: LENS_Z });
       applyLensMaterial();
     }
     S.lensShown = !S.lensShown;
@@ -343,13 +350,13 @@ function resetAll() {
   S.hue = 0.84;
   S.lensMaterial = "clear";
   if (!S.lensShown) {
-    E.lens = add(L.lensHome, "capsule", 0, "clear", { lens: true, z: 2 });
+    E.lens = add(L.lensHome, "capsule", 0, "clear", { lens: true, z: LENS_Z });
     S.lensShown = true;
   }
   setFrame(E.lens, L.lensHome, 0.6, 0.15);
   setFrame(E.refKnob, knobRect(L.refKnob, refCenter()), 0.6, 0.15);
   setFrame(E.hueKnob, knobRect(L.hueKnob, hueCenter()), 0.6, 0.15);
-  Object.assign(S, { transparency: 0.5, contrast: false, reduceTransparency: false, physics: true });
+  Object.assign(S, { transparency: 0.5, contrast: false, reduceTransparency: false, physics: true, limitFps: false });
   if (S.dark) S.dark = false;
   applyCtaTint();
   applyLensMaterial();
@@ -364,6 +371,7 @@ const CHIPS = [
   { key: "reduceMotion", label: "Reduce Motion" },
   { key: "reduceTransparency", label: "Reduce Transparency" },
   { key: "physics", label: "Physics" },
+  { key: "limitFps", label: "Limit FPS" },
 ];
 
 function panelUI() {
@@ -561,7 +569,7 @@ function hoverable(p) {
 addEventListener("keydown", (e) => {
   if (RECORD || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
-  const map = { d: "dark", c: "contrast", m: "reduceMotion", t: "reduceTransparency", p: "physics" };
+  const map = { d: "dark", c: "contrast", m: "reduceMotion", t: "reduceTransparency", p: "physics", f: "limitFps" };
   if (map[k]) toggleChip(map[k]);
   else if (k === " ") { e.preventDefault(); S.autoplay ? stopAutoplay() : startAutoplay(); }
   else if (k === "escape") toggleMenu(false);
@@ -845,8 +853,7 @@ function stopAutoplay() {
 
 // ---------------------------------------------------------------- drawing: content behind the glass
 
-function drawBack() {
-  const ctx = bctx;
+function drawBack(ctx) {
   const k = dpr * fit;
   ctx.setTransform(k, 0, 0, k, 0, 0);
   const hair = 1 / k;
@@ -970,13 +977,12 @@ function drawGuides(ctx, hair) {
   line({ x: pf.x - 40 * s, y: pf.y - 40 * s }, { x: pf.x + pf.w, y: pf.y + pf.h });
 }
 
-// ---------------------------------------------------------------- drawing: ink on the glass + cursors
+// ---------------------------------------------------------------- drawing: labels on the glass, ink above it
 
-function drawInk() {
-  const ctx = ictx;
+// Glyphs and labels on the glass under the lens. liquid-rust draws them between its two
+// passes of glass, so the lens refracts them like everything else below it.
+function drawLabels(ctx) {
   const k = dpr * fit;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, ink.width, ink.height);
   ctx.setTransform(k, 0, 0, k, 0, 0);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -1040,7 +1046,16 @@ function drawInk() {
 
   drawMenu(ctx, label);
   drawPanel(ctx, label);
-  drawToast(ctx, label);
+}
+
+// What is above every piece of glass: the toast's text (its glass is the top layer) and
+// the scripted cursors.
+function drawInk(ctx) {
+  const k = dpr * fit;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  drawToast(ctx, color("label"));
   if (S.autoplay || cursors.some((c) => c.alpha > 0.01)) drawCursors(ctx);
 }
 
@@ -1206,6 +1221,52 @@ function drawCursors(ctx) {
   }
 }
 
+// ---------------------------------------------------------------- painting only what changed
+
+// A 2D context that paints nothing and writes down what it was asked to draw. Each layer is
+// drawn through it first. If the tape matches the last one, the layer is neither repainted
+// nor uploaded again, and liquid-rust keeps the blur it already made of the content
+// (`content_changed: false`). Dragging the lens, for one, changes no layer at all.
+const PAINTS = new Set(["fill", "stroke", "fillRect", "strokeRect", "clearRect", "fillText", "strokeText"]);
+const tape = [];
+const probe = new Proxy(document.createElement("canvas").getContext("2d"), {
+  get(ctx, key) {
+    const value = ctx[key];
+    if (typeof value !== "function") return value;
+    return (...args) => {
+      tape.push(key, ...args);
+      if (PAINTS.has(key)) return undefined;
+      const result = value.apply(ctx, args);
+      if (result instanceof CanvasGradient) {
+        const add = result.addColorStop.bind(result);
+        result.addColorStop = (at, stop) => { tape.push(at, stop); add(at, stop); };
+      }
+      return result;
+    };
+  },
+  set(ctx, key, value) {
+    tape.push(key, value);
+    ctx[key] = value;
+    return true;
+  },
+});
+
+const layer = (canvas, draw) => ({ ctx: canvas.getContext("2d"), draw, tape: null });
+const LAYERS = { back: layer(back, drawBack), labels: layer(labels, drawLabels), ink: layer(ink, drawInk) };
+
+// Repaints a layer if what it draws has changed, and says whether it did.
+function paint(l) {
+  tape.length = 0;
+  l.draw(probe);
+  const drawn = tape.join("|");
+  if (drawn === l.tape) return false;
+  l.tape = drawn;
+  l.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  l.ctx.clearRect(0, 0, l.ctx.canvas.width, l.ctx.canvas.height);
+  l.draw(l.ctx);
+  return true;
+}
+
 // ---------------------------------------------------------------- frame loop
 
 let lastLight = 0, animating = true;
@@ -1225,16 +1286,27 @@ function advance(dt) {
   const light = S.lightSweep + tilt;
   if (Math.abs(light - lastLight) > 0.2) { gl.setLightAngle(light); lastLight = light; }
 
-  drawBack();
-  gl.setContent(back);
-  animating = gl.frame(dt);
-  drawInk();
+  // Springs first: fills and labels follow the glass, so they are drawn where it is now.
+  animating = gl.update(dt);
+  if (paint(LAYERS.back)) gl.setContent(back);
+  if (paint(LAYERS.labels)) gl.setLabels(labels, LENS_Z);
+  gl.draw();
+  paint(LAYERS.ink);
 }
 
 const settling = () => Math.abs(S.darkT - (S.dark ? 1 : 0)) > 0 || cursors.some((c) => Math.abs(c.alpha - (S.autoplay ? 1 : 0)) > 0.01 || c.pressT > 0.01);
 
-let running = false, last = 0;
+let running = false, last = 0, rafAt = 0, period = 1000 / 60, held = 0;
 function tick(now) {
+  // The display's frame period: the shortest gap between callbacks, forgotten slowly in
+  // case the window moves to another screen. A pause is not a gap.
+  period = Math.min(now - rafAt > 2 ? now - rafAt : period, period * 1.01);
+  rafAt = now;
+  // Limit FPS: draw every n-th display frame, with n picked so the rate lands near 60 and
+  // every frame stays up equally long (144 Hz gives 72 fps; 120 and 60 give 60). The
+  // springs are solved in closed form, so the longer step lands on the same curve.
+  if (S.limitFps && ++held < Math.round(1000 / 60 / period)) return requestAnimationFrame(tick);
+  held = 0;
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   simTime += dt;
@@ -1261,6 +1333,11 @@ async function boot() {
     document.fonts.load(`600 16px ${FONT}`),
     document.fonts.load(`400 12px ${MONO}`),
   ]).catch(() => {});
+  // A font that arrives late changes the title and captions without changing any state.
+  document.fonts.addEventListener("loadingdone", () => {
+    for (const l of Object.values(LAYERS)) l.tape = null;
+    if (gl) wake();
+  });
   await init();
   measureViewport();
   try {
