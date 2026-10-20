@@ -45,12 +45,25 @@ html, body {
   inset: 0;
   display: grid;
   place-content: center;
+  place-items: center;
+  overflow: auto;
   gap: 16px;
   padding: 16px;
+  box-sizing: border-box;
   text-align: center;
 }
 #fallback[hidden] { display: none; }
-#fallback img { max-width: min(960px, 100%); height: auto; border-radius: 20px; }
+#fallback img {
+  display: block;
+  margin: 0 auto;
+  justify-self: center;
+  max-width: min(960px, 100%);
+  max-height: min(540px, 70vh);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 20px;
+}
 #fallback p { margin: 0 auto; max-width: 56ch; color: var(--secondary); }
 #fallback strong { color: var(--label); font-weight: 600; }
 #fallback a { color: #0071e3; }
