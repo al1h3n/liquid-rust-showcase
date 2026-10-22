@@ -210,9 +210,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "liquid-rust"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8429e5fd1734d4e3b79f7b90bce41493c55217d2f1a925e3b3ad87d984ad7a56"
+checksum = "a29a10291dbc45ea6d7435ac31fb42a49d59916cbb2e0cc5b40dad1efaec87f0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -522,9 +522,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.54.0"
+version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c168a474b95bfecfe908a65d4bdffc523144b649a74c09c286afb35d53e0bc"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
 dependencies = [
  "pin-project-lite",
 ]
