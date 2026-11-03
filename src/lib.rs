@@ -23,11 +23,9 @@ pub struct Showcase {
     /// Draws the glass from layer `upper_z` up over `middle`, into the canvas.
     upper: Renderer,
     upper_z: i32,
-    content: wgpu::Texture,
+    /// Offscreen textures (content, middle, labels) with their views, made once per size.
+    targets: Targets,
     content_changed: bool,
-    /// Content, lower glass and its labels: what the upper glass refracts.
-    middle: wgpu::Texture,
-    labels: wgpu::Texture,
     ink: wgpu::RenderPipeline,
     scene: Scene,
     glass: Vec<GlassId>,
@@ -58,21 +56,20 @@ impl Showcase {
         config.view_formats = vec![view_format];
         config.alpha_mode = wgpu::CompositeAlphaMode::Opaque;
         surface.configure(&device, &config);
-        let [content, middle, labels] = textures(&device, width, height);
+        let ink = ink_pipeline(&device);
+        let targets = Targets::new(&device, &ink, width, height);
         Ok(Showcase {
             lower: Renderer::new(&device, MIDDLE),
             upper: Renderer::new(&device, view_format),
             upper_z: i32::MAX,
-            ink: ink_pipeline(&device),
+            ink,
             surface,
             device,
             queue,
             config,
             view_format,
-            content,
+            targets,
             content_changed: true,
-            middle,
-            labels,
             scene: Scene::new(),
             glass: Vec::new(),
             containers: Vec::new(),
@@ -90,7 +87,7 @@ impl Showcase {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
-        [self.content, self.middle, self.labels] = textures(&self.device, width, height);
+        self.targets = Targets::new(&self.device, &self.ink, width, height);
         self.content_changed = true;
     }
 
@@ -98,7 +95,7 @@ impl Showcase {
     /// that canvas changed: an unchanged backdrop reuses its blur pyramid for free.
     #[wasm_bindgen(js_name = setContent)]
     pub fn set_content(&mut self, source: web_sys::HtmlCanvasElement) {
-        self.upload(source, &self.content, false);
+        self.upload(source, &self.targets.content, false);
         self.content_changed = true;
     }
 
@@ -108,7 +105,7 @@ impl Showcase {
     /// when that canvas changed.
     #[wasm_bindgen(js_name = setLabels)]
     pub fn set_labels(&mut self, source: web_sys::HtmlCanvasElement, upper_z: i32) {
-        self.upload(source, &self.labels, true);
+        self.upload(source, &self.targets.labels, true);
         self.upper_z = upper_z;
     }
 
@@ -314,17 +311,19 @@ impl Showcase {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             _ => return,
         };
+        // Only the canvas view is new each frame (the browser hands out a new texture). The
+        // content and middle views are the same objects every frame, so both renderers find
+        // their bind groups for them in their caches instead of building new ones.
         let target = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(self.view_format), ..Default::default() });
-        let content = self.content.create_view(&Default::default());
-        let middle = self.middle.create_view(&Default::default());
+        let (content, middle) = (&self.targets.content_view, &self.targets.middle_view);
         let size = (self.config.width, self.config.height);
         let mut encoder = self.device.create_command_encoder(&Default::default());
 
-        let frame = Frame { content: &content, target: &middle, size, scale: self.scale, content_changed: self.content_changed };
+        let frame = Frame { content, target: middle, size, scale: self.scale, content_changed: self.content_changed };
         self.lower.render_layers(&self.device, &self.queue, &mut encoder, &frame, &self.scene, ..self.upper_z);
         self.draw_labels(&mut encoder);
         // The lower glass is redrawn every frame, so what the upper glass sees is always new.
-        let frame = Frame { content: &middle, target: &target, size, scale: self.scale, content_changed: true };
+        let frame = Frame { content: middle, target: &target, size, scale: self.scale, content_changed: true };
         self.upper.render_layers(&self.device, &self.queue, &mut encoder, &frame, &self.scene, self.upper_z..);
 
         self.queue.submit([encoder.finish()]);
@@ -369,17 +368,10 @@ impl Showcase {
     /// through a view without the sRGB suffix, as the browser does when it composites a
     /// canvas: text keeps the weight it has in the DOM.
     fn draw_labels(&self, encoder: &mut wgpu::CommandEncoder) {
-        let labels = self.labels.create_view(&Default::default());
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("labels"),
-            layout: &self.ink.get_bind_group_layout(0),
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&labels) }],
-        });
-        let encoded = self.middle.create_view(&wgpu::TextureViewDescriptor { format: Some(LABELS), ..Default::default() });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("labels"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &encoded,
+                view: &self.targets.middle_encoded,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
@@ -390,7 +382,7 @@ impl Showcase {
             multiview_mask: None,
         });
         pass.set_pipeline(&self.ink);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_bind_group(0, &self.targets.labels_group, &[]);
         pass.draw(0..3, 0..1);
     }
 
@@ -462,21 +454,58 @@ const MIDDLE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// Format of the labels, and of the view of `middle` they are blended through.
 const LABELS: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
-/// The content, middle and labels textures for a canvas of this size.
-fn textures(device: &wgpu::Device, width: u32, height: u32) -> [wgpu::Texture; 3] {
-    let texture = |label, format, view_formats: &[wgpu::TextureFormat]| {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats,
-        })
-    };
-    [texture("content", MIDDLE, &[]), texture("middle", MIDDLE, &[LABELS]), texture("labels", LABELS, &[])]
+/// The offscreen textures for one canvas size, and everything read from them each frame.
+///
+/// Views and bind groups are made here, once per size, not once per frame: making them is a
+/// driver call plus a JavaScript object for the garbage collector, and liquid-rust (0.2.4+)
+/// caches its own bind groups by view, which only pays off when it gets the same view back.
+struct Targets {
+    /// The page's 2D canvas: background, title, slider fills.
+    content: wgpu::Texture,
+    content_view: wgpu::TextureView,
+    /// Content, lower glass and its labels: what the upper glass refracts. Kept so the
+    /// texture lives as long as its views.
+    _middle: wgpu::Texture,
+    middle_view: wgpu::TextureView,
+    /// `middle` without the sRGB suffix, for blending the labels in (see `draw_labels`).
+    middle_encoded: wgpu::TextureView,
+    /// Labels and glyphs that sit on the lower glass.
+    labels: wgpu::Texture,
+    /// Binds the labels texture for the `ink` pipeline.
+    labels_group: wgpu::BindGroup,
+}
+
+impl Targets {
+    fn new(device: &wgpu::Device, ink: &wgpu::RenderPipeline, width: u32, height: u32) -> Self {
+        let texture = |label, format, view_formats: &[wgpu::TextureFormat]| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats,
+            })
+        };
+        let (content, middle, labels) = (texture("content", MIDDLE, &[]), texture("middle", MIDDLE, &[LABELS]), texture("labels", LABELS, &[]));
+        let labels_view = labels.create_view(&Default::default());
+        let labels_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("labels"),
+            layout: &ink.get_bind_group_layout(0),
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&labels_view) }],
+        });
+        Self {
+            content_view: content.create_view(&Default::default()),
+            content,
+            middle_view: middle.create_view(&Default::default()),
+            middle_encoded: middle.create_view(&wgpu::TextureViewDescriptor { format: Some(LABELS), ..Default::default() }),
+            _middle: middle,
+            labels,
+            labels_group,
+        }
+    }
 }
 
 /// Copies the premultiplied labels over whatever is in the target.
